@@ -8,14 +8,15 @@ A ready-to-use template that combines WGPU for graphics rendering, EGUI for user
 - Pre-configured project structure and dependencies
 
 ## Getting Started
-
 Clone the repository:
-    ```bash
-    git clone https://github.com/0xdilo/wgpu-egui-template.git
-    cd wgpu-egui-fps-template
+```bash
+git clone https://github.com/0xdilo/wgpu-egui-template.git
+cd wgpu-egui-fps-template
+```
 
 Build and run:
-    ```bash
-    cargo run -r
+```bash
+cargo run -r
+```
 
 That's it! The template should compile and launch, showing an static background with working camera controls and a simple EGUI interface.
