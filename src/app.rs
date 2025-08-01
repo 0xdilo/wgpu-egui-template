@@ -1,5 +1,7 @@
 use crate::camera::Camera;
 use crate::egui_tools::EguiRenderer;
+use crate::raytracing::VoxelRenderer;
+use crate::world::VoxelWorld;
 use egui_wgpu::{wgpu, ScreenDescriptor};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -20,6 +22,8 @@ pub struct AppState {
     pressed_keys: Vec<winit::keyboard::KeyCode>,
     mouse_delta: (f32, f32),
     cursor_locked: bool,
+    voxel_world: VoxelWorld,
+    voxel_renderer: VoxelRenderer,
 }
 
 impl AppState {
@@ -75,6 +79,9 @@ impl AppState {
 
         let egui_renderer = EguiRenderer::new(&device, surface_config.format, None, 1, &window);
         let camera = Camera::new();
+        
+        let voxel_world = VoxelWorld::new();
+        let voxel_renderer = VoxelRenderer::new(&device, surface_config.format, width, height);
 
         Self {
             device,
@@ -88,6 +95,8 @@ impl AppState {
             pressed_keys: Vec::new(),
             mouse_delta: (0.0, 0.0),
             cursor_locked: false,
+            voxel_world,
+            voxel_renderer,
         }
     }
 
@@ -95,6 +104,7 @@ impl AppState {
         self.surface_config.width = width;
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
+        self.voxel_renderer.resize(&self.device, width, height);
     }
 
     fn render(&mut self) {
@@ -110,28 +120,19 @@ impl AppState {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        // Clear the screen
-        {
-            let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-        }
+        // Update voxel renderer with world data (simplified for now)
+        self.voxel_renderer.update_world_data(&self.device, &self.queue, &self.voxel_world);
+        
+        // Render voxels using raytracing
+        self.voxel_renderer.render(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &view,
+            &self.camera,
+            self.surface_config.width,
+            self.surface_config.height,
+        );
 
         // Render the eGUI menu
         {
@@ -143,7 +144,7 @@ impl AppState {
 
             self.egui_renderer.begin_frame(window);
 
-            egui::Window::new("Controls")
+            egui::Window::new("Voxel Engine Controls")
                 .resizable(true)
                 .vscroll(true)
                 .default_open(true)
@@ -152,6 +153,23 @@ impl AppState {
                     if ui.button("Reset Camera").clicked() {
                         self.camera = Camera::new();
                     }
+                    
+                    ui.separator();
+                    ui.label("Voxel World Info");
+                    ui.label(format!("Loaded Chunks: {}", self.voxel_world.chunk_count()));
+                    ui.label(format!("Camera Position: {:.1}, {:.1}, {:.1}", 
+                        self.camera.get_position().x,
+                        self.camera.get_position().y,
+                        self.camera.get_position().z
+                    ));
+                    
+                    ui.separator();
+                    ui.label("Render Distance");
+                    let mut render_distance = 8; // Default value
+                    ui.add(egui::Slider::new(&mut render_distance, 1..=16).text("chunks"));
+                    self.voxel_world.set_render_distance(render_distance);
+                    
+                    ui.separator();
                     ui.horizontal(|ui| {
                         ui.label(format!(
                             "Pixels per point: {}",
@@ -164,6 +182,13 @@ impl AppState {
                             self.scale_factor = (self.scale_factor + 0.1).min(3.0);
                         }
                     });
+                    
+                    ui.separator();
+                    ui.label("Controls:");
+                    ui.label("WASD - Move camera");
+                    ui.label("Space/Shift - Move up/down");
+                    ui.label("Mouse - Look around (click to lock cursor)");
+                    ui.label("Escape - Unlock cursor");
                 });
 
             self.egui_renderer.end_frame_and_draw(
